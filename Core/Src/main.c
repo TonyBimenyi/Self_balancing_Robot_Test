@@ -40,8 +40,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
-
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
@@ -54,7 +52,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -68,18 +65,139 @@ static void MX_ADC1_Init(void);
   * @brief  The application entry point.
   * @retval int
   */
+
+
+void delay (uint16_t us)
+{
+  __HAL_TIM_SET_COUNTER(&htim1, 0);
+  while (__HAL_TIM_GET_COUNTER(&htim1) < us);
+}
+
+#define stepsperrev 4096
+
+void stepper_set_rpm (int rpm)  // Set rpm--> max 13, min 1,,,  went to 14 rev/min
+{
+	delay(60000000/stepsperrev/rpm);
+}
+
+void stepper_half_drive (int step)
+{
+  switch (step){
+         case 0:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);   // IN4
+		  break;
+
+	  case 1:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);   // IN4
+		  break;
+
+          case 2:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);   // IN4
+		  break;
+
+	  case 3:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);   // IN4
+		  break;
+
+	  case 4:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);   // IN4
+		  break;
+
+	  case 5:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);   // IN4
+		  break;
+
+	  case 6:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);   // IN4
+		  break;
+
+	  case 7:
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);   // IN1
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);   // IN2
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);   // IN3
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);   // IN4
+		  break;
+
+	}
+}
+
+void stepper_step_angle (float angle, int direction, int rpm) //direction-> 0 for CK, 1 for CCK
+{
+  float anglepersequence = 0.703125;  // 360 = 512 sequences
+  int numberofsequences = (int) (angle/anglepersequence);
+  for (int seq=0; seq<numberofsequences; seq++)
+  {
+	if (direction == 0)  // for clockwise
+	{
+       	  for (int step=7; step>=0; step--)
+	  {
+	    stepper_half_drive(step);
+	    stepper_set_rpm(rpm);
+	  }
+	}
+	else if (direction == 1)  // for anti-clockwise
+	{
+	  for (int step=0; step<=7; step++)
+	  {
+	    stepper_half_drive(step);
+	    stepper_set_rpm(rpm);
+	  }
+	}
+  }
+}
+
+float currentAngle = 0;
+void Stepper_rotate (int angle, int rpm)
+{
+	int changeinangle = 0;
+	changeinangle = angle-currentAngle;  // calculate the angle by which the motor needed to be rotated
+	if (changeinangle > 0.71)  // clockwise
+	{
+		stepper_step_angle (changeinangle,0,rpm);
+		currentAngle = angle;  // save the angle as current angle
+	}
+	else if (changeinangle <0.71) // CCK
+	{
+		changeinangle = -(changeinangle);
+		stepper_step_angle (changeinangle,1,rpm);
+		currentAngle = angle;
+	}
+}
+
+
 int main(void)
 {
 
   /* USER CODE BEGIN 1 */
 
-	  HAL_ADC_Start(&hadc1);  //PB1
-	  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); //PA1 TIM2 CH2
-	  uint16_t readValue;
-	  int speed;
-	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, 0);
-	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 0);
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, 0);
+//	  HAL_ADC_Start(&hadc1);  //PB1
+//	  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); //PA1 TIM2 CH2
+//	  uint16_t readValue;
+//	  int speed;
+//	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, 0);
+//	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 0);
+//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, 0);
 
 
   /* USER CODE END 1 */
@@ -104,21 +222,17 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
-  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_TIM_Base_Start(&htim1);
   while (1)
   {
     /* USER CODE END WHILE */
-//	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
-//	 HAL_Delay(100);
-//
-//	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
-//	 HAL_Delay(100);
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -132,7 +246,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -162,59 +275,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
-  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV2;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_ADC1_Init(void)
-{
-
-  /* USER CODE BEGIN ADC1_Init 0 */
-
-  /* USER CODE END ADC1_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC1_Init 1 */
-
-  /* USER CODE END ADC1_Init 1 */
-
-  /** Common config
-  */
-  hadc1.Instance = ADC1;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 1;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_9;
-  sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC1_Init 2 */
-
-  /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
